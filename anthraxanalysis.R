@@ -22,24 +22,18 @@ metadata <- read.csv('data/metadata.csv', stringsAsFactors=FALSE, na.strings = c
 #read in distance matrix and convert to pairwise obcservations vs matrix
 mat <- read.delim('data/MSA_Banthracis_75samples_withGapsAndNs.distmatrix.txt', check.names=FALSE)
 
-
-
-
-
 #force lat long to numeric
 metadata$long <- as.numeric(metadata$long)
 metadata$lat <- as.numeric(metadata$lat)
 
 
 #############################################################################################
-### testing
-### testing
-#de testing
+### Turning distance matrix into within/between scale comparisons for plotting and
+### analysis
 #############################################################################################
 
 #################
 #create indexed observations from matrix top triangle
-
 test <- as.matrix(mat, labels=T)
 #define rownames
 rownames(test) <- mat[,1]
@@ -54,19 +48,16 @@ inddist$dist <- as.numeric(inddist$dist)
 
 #################
 #rename columns and join metadata to lhs and rhs
-
 t1 <- inddist %>% 
   rename(idx = `X1`, idy = X2, ntdiff = dist) %>% 
   left_join(., metadata, by = c("idx" = "sample_id")) %>% 
   left_join(., metadata, by = c("idy" = "sample_id"))
 
-
 #################
 #Create four columns - one for each scale
-
 t2 <-
   t1 %>% 
-  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y) %>% 
+  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y, lat.x, long.x, lat.y, long.y) %>% 
   mutate(., epi = 'epi') %>%
   mutate(., geog = 'geog') %>% 
   mutate(., carcass = 'carcass') %>% 
@@ -76,7 +67,6 @@ t2 <-
 #Stack the four scale columns into one, duplicating the df four times
 #then define the different scales of each comparison based on whether each level (carcass, epi, geog group and species) are the same or 
 #different
-
 t3 <- t2 %>% 
   pivot_longer(c(carcass, geog, epi, species), names_to = "ascale") %>% 
   mutate(withinorbetween = case_when(
@@ -84,16 +74,19 @@ t3 <- t2 %>%
     (ascale == 'carcass' & carcass.x != carcass.y) ~ 'Different Carcasses',
     (ascale == 'geog' & geog.x == geog.y) ~ 'Same Cluster', 
     (ascale == 'geog' & geog.x != geog.y) ~ 'Different Cluster',
-    (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Linked Cases',
-    (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' & Cluster.y == 'Single case') ~ 'dUnlinked Cases',
     (ascale == 'species' & species.x == species.y) ~ 'Same Species', 
-    (ascale == 'species' & species.x != species.y) ~ 'Different Species'))
+    (ascale == 'species' & species.x != species.y) ~ 'Different Species',
+    (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Linked Cases',
+    (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' | Cluster.y == 'Single case') ~ 'dUnlinked Cases'))
 
 ################
 #filter out same:same observations
 filt_t3 <-t3 %>% filter(!(idx==idy))
 #remove observations from epi clusters that are from the same carcass
 filt_t4 <- filt_t3 %>% filter(!(ascale == 'epi' & carcass.x == carcass.y))
+
+
+lu <- filt_t4 %>%   filter(., ascale == 'Epidemiological Cluster' & withinorbetween == "Linked Cases")
 
 ################
 #generate summary stats for each group
@@ -102,100 +95,29 @@ summarystatsfiltt4 <-filt_t4 %>%
   group_by(withinorbetween) %>% 
   summarise(median(ntdiff), mean(ntdiff), min(ntdiff), max(ntdiff) )
 
-
 ################
 #write to file - unfiltered df and filtered df, and summary stats
 write_csv(t1, 'data/pairwise-observations-unfiltered.csv')
 write_csv(filt_t4, 'data/pairwise-observations-filtered.csv')
 write_csv(summarystatsfiltt4, 'data/summarystatstfromfiltered.csv')
 
-
-
-
-
 #############################################################################################
-### testing - on real data
-### testing
-#de testing
+### Prepare final df for plotting
+### 
 #############################################################################################
 
+#define ascale as factor level for plotting (capitalising letters, etc)
+filt_t4$ascale <- factor(filt_t4$ascale, levels = c("geog", "epi", "carcass", "species"), labels = c("Geographic Cluster",  "Epidemiological Cluster", "Carcass", "Species"))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#############################################################################################
-###pariwise distance over nonlinear scales
-###boxplots to illustrate whether pairwise distance between isolates is very different
-#depending on whether you are looking within or between a given scale (i.e. village, host species, etc)
-#############################################################################################
-
-filtmat <- mat %>% select(`AN16-110_S`)
-
-
-c<-mat %>%
-  pivot_longer(cols = c('AN16-110_S':'AN16-110_D1')) %>% #creates initial df 75*75 indexed observations = 5329
-  rename(idx = `snp-dists 0.7.0`, idy = name, ntdiff = value) %>% 
-  left_join(., metadata, by = c("idx" = "sample_id")) %>% 
-  left_join(., metadata, by = c("idy" = "sample_id")) %>% 
-  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, geog.x, geog.y, lat.x, long.x, lat.y, long.y) #I was dropping na values here which is a mistake as it deletes rows with incomplete metadata
-
-
-
-
-
-
-#for geographic cluster
-#carcass
-#epi cluster
-c$carcass <- paste("carcass")
-c$geog <- paste("geog")
-c$epi <- paste("epi")
-
-c <- c %>% 
-  pivot_longer(c(carcass, geog, epi), names_to = "ascale") %>% 
-  mutate(withinorbetween = case_when(
-    (ascale == 'carcass' & carcass.x == carcass.y) ~ 'Same Carcass',
-    (ascale == 'carcass' & carcass.x != carcass.y) ~ 'Different Carcasses',
-    (ascale == 'geog' & geog.x == geog.y) ~ 'Same Cluster', 
-    (ascale == 'geog' & geog.x != geog.y) ~ 'Different Cluster',
-    (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Linked Cases',
-    (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' & Cluster.y == 'Single case') ~ 'dUnlinked Cases'))
-
-f<-c %>% 
-  filter(idx != idy) %>% 
-  filter(!(ascale == 'epi' & carcass.x == carcass.y & Cluster.x == Cluster.y))
-
-f %>% select(withinorbetween, ntdiff) %>% group_by(withinorbetween) %>% summarise(median(ntdiff))
-
-
-
-
-
-
-
-
-
-
-c$ascale <- factor(c$ascale, levels = c("geog", "epi", "carcass"), labels = c("Geographic Cluster",  "Epidemiological Cluster", "Carcass"))
-
-levels(as.factor(c$withinorbetween))
-
+#check withinorbetween factor elvels
+levels(as.factor(filt_t4$withinorbetween))
+#define palette based on order of above
 colorset = c('#33a02c','#33a02c','#33a02c', '#ff7f00', '#ff7f00', '#ff7f00')
+
 #########
 #violin plots of distance within and between scales
-c %>% ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
+filt_t4 %>% filter((ascale != 'Species')) %>% 
+  ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
   scale_fill_manual(values=colorset) +
   geom_violin(trim=FALSE, width = 1, show.legend = FALSE ) +
   facet_grid(. ~ ascale, scales = "free_x") +
@@ -203,29 +125,39 @@ c %>% ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) +
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
   xlab("Difference in Scale") +
   ylab("Pairwise distance (# nucleotides)") +
-  ylim(0, 50) +
+  ylim(0, 80) +
   theme_minimal(base_size = 22) 
 
 ggsave("violinfig1_cleaned_amended", plot = last_plot(), device = 'png', path = "figures/")
 
 #########
 #histogram of disdtance within carcass
-c %>% filter(ascale == 'carcass' & withinorbetween == 'Same Carcass') %>% 
+filt_t4 %>% filter(ascale == 'Carcass' & withinorbetween == 'Same Carcass') %>% 
   ggplot(aes(x=ntdiff)) +
-  geom_density() +
+  geom_histogram(binsize =1) +
   theme_minimal()
 
 #########
 #histogram of disdtance within NCA whole
-c %>% 
-  select(id, ntdiff) %>% 
+filt_t4 %>% 
+  select(idx, idy, ntdiff) %>% 
   distinct() %>% 
   ggplot(aes(x=ntdiff)) +
-  geom_density() +
+  geom_histogram(binsize =1) +
   theme_minimal()
 
-
-
+#violin plots of distance within and between scales FOR SPECIES ONLY
+filt_t4 %>% filter((ascale == 'Species')) %>% 
+  ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
+  scale_fill_manual(values=c('#33a02c','#ff7f00')) +
+  geom_violin(trim=FALSE, width = 1, show.legend = FALSE ) +
+  facet_grid(. ~ ascale, scales = "free_x") +
+  geom_boxplot(width=0.04, color="#252525", alpha=1.5, show.legend = FALSE ) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+  xlab("Difference in Scale") +
+  ylab("Pairwise distance (# nucleotides)") +
+  ylim(0, 80) +
+  theme_minimal(base_size = 22) 
 
 #############################################################################################
 ###IS PAIRWISE DISTANCE A FUNCTION OF SCALE?
@@ -234,17 +166,19 @@ c %>%
 
 #get pairwise lat and long for pairs of samples
 #remove imcomplete rows
-lalo <- t %>% select(id, ntdiff, lat.x, long.x, lat.y, long.y)
+lalo <- filt_t4 %>% 
+  select(idx, idy, ntdiff, lat.x, long.x, lat.y, long.y) %>% 
+  distinct()
 c<-lalo[complete.cases(lalo), ] 
 
 #get distances between sampling points
 for(i in 1:nrow(c)) {
 t<-raster::pointDistance(c(c$lat.x[i], c$long.x[i]), c(c$lat.y[i], c$long.y[i]), lonlat = T)
-c[i, 7] <- t
+c[i, 8] <- t
 }
 
 #plot distance over ntdiff
-ggplot(c, aes(x = V7, y = ntdiff)) +
+ggplot(c, aes(x = `...8`, y = ntdiff)) +
   xlab("Distance in metres") +
   ylab("Distance (nucleotides)") +
   geom_point() +
@@ -277,7 +211,7 @@ eastafricarop <- st_crop(world,
                          ymin = -1,
                          ymax = -4)
 
-eastafricabbox <- 
+eastafricabbox <- st_bbox(eastafricarop)
 
 
 
