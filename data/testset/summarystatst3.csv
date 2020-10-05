@@ -1,0 +1,9 @@
+withinorbetween,median(ntdiff),mean(ntdiff),min(ntdiff),max(ntdiff)
+Different Carcasses,16,14.5,2,31
+Different Cluster,16,14.75,2,31
+Different Species,9.5,11.5,2,25
+dUnlinked Cases,16,14.75,2,31
+Linked Cases,3,10.2,0,28
+Same Carcass,0,7.666666666666667,0,28
+Same Cluster,3,10.2,0,28
+Same Species,11.5,12.8,0,31
