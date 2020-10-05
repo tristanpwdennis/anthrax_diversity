@@ -185,6 +185,53 @@ ggplot(c, aes(x = `...8`, y = ntdiff)) +
   theme_minimal()
 
 #############################################################################################
+###Fiddle with tree
+#############################################################################################
+x <- read.tree('data/MSA_Banthracis_75samples_clean_shortened.afa.treefile')
+metadata <- read.csv('data/metadata.csv', stringsAsFactors=FALSE, na.strings = c("", "NA"))
+#midpoint root tree so is easier to look at
+tree <- root(x, 'NC_007530')
+#get only metadata with tips in tree
+treedata <- subset(metadata, sample_id %in% tree$tip.label)
+#create ggtree object and attach tree data
+#plot tree with annotations
+#some of the annotations mapped on funny so I ended up manually editing them in Illustrator because 
+#I am too lazy to figure out what's going wrong. A false economy I will no doubt come to regret
+#in the fullness of time.
+
+treedata<- treedata %>% select(sample_id, geog, Cluster)
+colnames(treedata) <- c("sample_id", "Geographical_Cluster", "Cluster")
+
+p<-ggtree(tree)
+p <- p %<+% treedata 
+
+#main tree
+maintree <- p + 
+  geom_tippoint(aes(x=x+0.000015, color=Geographical_Cluster,shape = Cluster, order = Geographical_Cluster), size=4, alpha=.75) +
+  geom_treescale() +
+  geom_rootpoint() +
+  scale_color_manual(values=c("#29ABE2", "#7AC943", "#FF931E", "#FF1D25", "#B2B2B2"), na.translate = F) +
+  theme(legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 10),
+        legend.position = c(0.75, 0.5)) +
+  scale_shape_manual(values = c(15, 17, 18, 25, 16), na.translate = F) 
+ggsave("maintree.svg", plot = maintree, device = "svg", path = "figures/")
+
+#supp tree
+supptree <- p + 
+  geom_tippoint(aes(x=x+0.000015, color=Geographical_Cluster,shape = Cluster, order = Geographical_Cluster), size=4, alpha=.75) +
+  geom_tiplab(aes(x=x+0.00003)) + 
+  geom_treescale() +
+  scale_color_manual(values=c("#29ABE2", "#7AC943", "#FF931E", "#FF1D25", "#B2B2B2"), na.translate = F) +
+  theme(legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 10),
+        legend.position = c(0.75, 0.5)) +
+  scale_shape_manual(values = c(15, 17, 18, 25, 16), na.translate = F) 
+ggsave("supptree.svg", plot = supptree, device = "svg", path = "figures/")
+
+
+
+#############################################################################################
 ###Plot on map
 #############################################################################################
 #read in Tom and Grant's shapefiles for the Serengeti region
@@ -262,86 +309,5 @@ supp <- ggplot(data = world) +
 #plot
 supp
 
-#############################################################################################
-###Fiddle with tree
-#############################################################################################
-x <- read.tree('data/MSA_Banthracis_75samples_clean_shortened.afa.treefile')
-metadata <- read.csv('data/metadata.csv', stringsAsFactors=FALSE, na.strings = c("", "NA"))
-#midpoint root tree so is easier to look at
-tree <- root(x, 'NC_007530')
-#get only metadata with tips in tree
-treedata <- subset(metadata, sample_id %in% tree$tip.label)
 
-
-
-treedata
-
-#create ggtree object and attach tree data
-#plot tree with annotations
-#some of the annotations mapped on funny so I ended up manually editing them in Illustrator because 
-#I am too lazy to figure out what's going wrong. A false economy I will no doubt come to regret
-#in the fullness of time.
-
-treedata<- treedata %>% select(sample_id, geog, Cluster)
-colnames(treedata) <- c("sample_id", "Geographical_Cluster", "Cluster")
-
-p<-ggtree(tree)
-p <- p %<+% treedata 
-
-#main tree
- p + 
-  geom_tippoint(aes(x=x+0.000015, color=Geographical_Cluster,shape = Cluster, order = Geographical_Cluster), size=4, alpha=.75) +
-  geom_treescale() +
-   geom_rootpoint() +
-  scale_color_manual(values=c("#29ABE2", "#7AC943", "#FF931E", "#FF1D25", "#B2B2B2"), na.translate = F) +
-  theme(legend.title = element_text(size = 10), 
-          legend.text = element_text(size = 10),
-          legend.position = c(0.75, 0.5)) +
-  scale_shape_manual(values = c(15, 17, 18, 25, 16), na.translate = F) 
-
- 
- #draw main plot
- ggplot() +
-   draw_plot(nca) +
-   draw_plot(eastafrica, x = 0.1, y = 0.7, width = 0.3, height = 0.3)
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-maintree
-
-ggsave("maintree.svg", plot = maintree, device = "svg", path = "figures/")
-
-
-
-#supp tree
-supptree <- p + 
-  geom_tippoint(aes(x=x+0.000015, color=Geographical_Cluster,shape = Cluster, order = Geographical_Cluster), size=4, alpha=.75) +
-  geom_tiplab(aes(x=x+0.00003)) + 
-  geom_treescale() +
-  scale_color_manual(values=c("#29ABE2", "#7AC943", "#FF931E", "#FF1D25", "#B2B2B2"), na.translate = F) +
-  theme(legend.title = element_text(size = 10), 
-        legend.text = element_text(size = 10),
-        legend.position = c(0.75, 0.5)) +
-  scale_shape_manual(values = c(15, 17, 18, 25, 16), na.translate = F) 
-ggsave("supptree.svg", plot = supptree, device = "svg", path = "figures/")
-
-supptree
-
-hist(pairwise$ntdiff,
-     main="Pairwise SNP Differences Between NCA Isolates",
-     xlab="Number of nucleotide differences"
-)
-hist(withinsp$ntdiff,
-     main="Pairwise SNP Differences Between NCA Isolates",
-     xlab="Number of nucleotide differences"
-)
 
