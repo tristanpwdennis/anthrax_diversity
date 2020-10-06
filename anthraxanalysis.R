@@ -1,21 +1,21 @@
+##############################################################################################
+#R script for anlaysis and generating figures in support of XX paper, Forde et al, 2020
+#Tristan Dennis, October 2020
+##############################################################################################
+
+###############################
+#import packages
+
 library(tidyverse)
-library(reshape2)
 library(sf)
 library("rnaturalearth")
 library("rnaturalearthdata")
 library(RColorBrewer)
-library("ggrepel")
 library(ggtree)
 library(treeio)
-library(phytools)
-library(svglite)
 library(cowplot)
-library(ggspatial)
-library(viridis)
-library(rgeos)
-library(data.table)
 
-
+#setwd
 setwd('~/Projects/anthrax_diversity/anthrax_diversity/')
 #read in data
 metadata <- read.csv('data/metadata.csv', stringsAsFactors=FALSE, na.strings = c("", "NA"))
@@ -25,7 +25,6 @@ mat <- read.delim('data/MSA_Banthracis_75samples_withGapsAndNs.distmatrix.txt', 
 #force lat long to numeric
 metadata$long <- as.numeric(metadata$long)
 metadata$lat <- as.numeric(metadata$lat)
-
 
 #############################################################################################
 ### Turning distance matrix into within/between scale comparisons for plotting and
@@ -55,9 +54,8 @@ t1 <- inddist %>%
 
 #################
 #Create four columns - one for each scale
-t2 <-
-  t1 %>% 
-  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y, lat.x, long.x, lat.y, long.y) %>% 
+t2 <- t1 %>% 
+  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y) %>% 
   mutate(., epi = 'epi') %>%
   mutate(., geog = 'geog') %>% 
   mutate(., carcass = 'carcass') %>% 
@@ -70,36 +68,59 @@ t2 <-
 t3 <- t2 %>% 
   pivot_longer(c(carcass, geog, epi, species), names_to = "ascale") %>% 
   mutate(withinorbetween = case_when(
+    #subset to 'carcass' and evaluate whether an observation is being made between samples from the same, or different, carcasses
     (ascale == 'carcass' & carcass.x == carcass.y) ~ 'Same Carcass',
     (ascale == 'carcass' & carcass.x != carcass.y) ~ 'Different Carcasses',
+    #ditto for geographic group
     (ascale == 'geog' & geog.x == geog.y) ~ 'Same Cluster', 
     (ascale == 'geog' & geog.x != geog.y) ~ 'Different Cluster',
+    #ditto for species
     (ascale == 'species' & species.x == species.y) ~ 'Same Species', 
     (ascale == 'species' & species.x != species.y) ~ 'Different Species',
+    #ditto for epi cluster - note that for samples not in a cluster 'single case'
+    #anything between a single case:single case, clsutered case:single case, etc is 'dUnlinked'
+    #the d is because ggplot facets alphabetically which messes with my plotting - hacky, manual fix
     (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Linked Cases',
     (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' | Cluster.y == 'Single case') ~ 'dUnlinked Cases'))
 
 ################
-#filter out same:same observations
-filt_t3 <-t3 %>% filter(!(idx==idy))
+#Now we need to apply some filters
+#filter out same:same observations - this isn't necessary as `combn` above only outputs 
+#filt_t3 <-t3 %>% filter(!(idx==idy))
 #remove observations from epi clusters that are from the same carcass
 filt_t4 <- filt_t3 %>% filter(!(ascale == 'epi' & carcass.x == carcass.y))
-
-
-lu <- filt_t4 %>%   filter(., ascale == 'Epidemiological Cluster' & withinorbetween == "Linked Cases")
+#unknown species:unknown species evaluates as spurious 'same species' - remove
+filt_t4 <- filt_t4 %>% filter(!(ascale == 'species' & species.x == 'unknown' | species.y == 'unknown'))
 
 ################
-#generate summary stats for each group
+#generate summary stats
+
+#for each 'scale' - within or between species, geog, epi, carcass
 summarystatsfiltt4 <-filt_t4 %>% 
   select(withinorbetween, ntdiff) %>% 
   group_by(withinorbetween) %>% 
-  summarise(median(ntdiff), mean(ntdiff), min(ntdiff), max(ntdiff) )
+  summarise(Median = median(ntdiff), Mean = mean(ntdiff), Min = min(ntdiff), Max = max(ntdiff), Lower_Quartile = quantile(ntdiff, 0.25), Upper_Quartile = quantile(ntdiff, 0.75), IQR = IQR(ntdiff))
+
+#across the whole isolate set
+ncawide <- inddist %>% 
+  summarise(Median = median(dist), Mean = mean(dist), Min = min(dist), Max = max(dist), Lower_Quartile = quantile(dist, 0.25), Upper_Quartile = quantile(dist, 0.75), IQR = IQR(dist)) %>% 
+  mutate(withinorbetween = paste('NCA-wide comparisons'))
+
+#distinct lineages from the same carcass
+distinct_carc <- filt_t4 %>% 
+  filter(withinorbetween == 'Same Carcass' & ntdiff > 0) %>% 
+  summarise(Median = median(ntdiff), Mean = mean(ntdiff), Min = min(ntdiff), Max = max(ntdiff), Lower_Quartile = quantile(ntdiff, 0.25), Upper_Quartile = quantile(ntdiff, 0.75), IQR = IQR(ntdiff)) %>% 
+  mutate(withinorbetween = paste('Distinct Isolates from Same Carcass'))
+
+#bind all 3 together
+finalsummarystatstable <- rbind(summarystatsfiltt4, ncawide, distinct_carc)
+
 
 ################
 #write to file - unfiltered df and filtered df, and summary stats
 write_csv(t1, 'data/pairwise-observations-unfiltered.csv')
 write_csv(filt_t4, 'data/pairwise-observations-filtered.csv')
-write_csv(summarystatsfiltt4, 'data/summarystatstfromfiltered.csv')
+write_csv(finalsummarystatstable, 'data/summarystatstfromfiltered.csv')
 
 #############################################################################################
 ### Prepare final df for plotting
@@ -111,6 +132,7 @@ filt_t4$ascale <- factor(filt_t4$ascale, levels = c("geog", "epi", "carcass", "s
 
 #check withinorbetween factor elvels
 levels(as.factor(filt_t4$withinorbetween))
+
 #define palette based on order of above
 colorset = c('#33a02c','#33a02c','#33a02c', '#ff7f00', '#ff7f00', '#ff7f00')
 
@@ -119,7 +141,7 @@ colorset = c('#33a02c','#33a02c','#33a02c', '#ff7f00', '#ff7f00', '#ff7f00')
 filt_t4 %>% filter((ascale != 'Species')) %>% 
   ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
   scale_fill_manual(values=colorset) +
-  geom_violin(trim=FALSE, width = 1, show.legend = FALSE ) +
+  geom_violin(trim=F, width = 1, show.legend = FALSE ) +
   facet_grid(. ~ ascale, scales = "free_x") +
   geom_boxplot(width=0.04, color="#252525", alpha=1.5, show.legend = FALSE ) +
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
@@ -127,27 +149,35 @@ filt_t4 %>% filter((ascale != 'Species')) %>%
   ylab("Pairwise distance (# nucleotides)") +
   ylim(0, 80) +
   theme_minimal(base_size = 22) 
-
-ggsave("violinfig1_cleaned_amended", plot = last_plot(), device = 'png', path = "figures/")
+ggsave("violinfig1.pdf", plot = last_plot(), device = 'pdf', path = "figures/")
 
 #########
 #histogram of disdtance within carcass
-filt_t4 %>% filter(ascale == 'Carcass' & withinorbetween == 'Same Carcass') %>% 
+
+carchist <- filt_t4 %>% filter(ascale == 'Carcass' & withinorbetween == 'Same Carcass') %>% 
   ggplot(aes(x=ntdiff)) +
-  geom_histogram(binsize =1) +
-  theme_minimal()
+  geom_histogram(binwidth =1) +
+  theme_minimal() +
+  xlab("Nucleotide differences") +
+  ylab("Count")
+ggsave("histogram_carcass_ntdiff.pdf", plot = carchist, device = 'pdf', path = "figures/")
 
 #########
 #histogram of disdtance within NCA whole
-filt_t4 %>% 
+ncahist <- filt_t4 %>% 
   select(idx, idy, ntdiff) %>% 
   distinct() %>% 
   ggplot(aes(x=ntdiff)) +
-  geom_histogram(binsize =1) +
-  theme_minimal()
+  geom_histogram(binwidth =1) +
+  theme_minimal()+
+  xlab("Nucleotide differences") +
+  ylab("Count")
+ggsave("histogram_ncawide_ntdiff.pdf", plot = ncahist, device = 'pdf', path = "figures/")
 
+
+#########
 #violin plots of distance within and between scales FOR SPECIES ONLY
-filt_t4 %>% filter((ascale == 'Species')) %>% 
+specviolin <- filt_t4 %>% filter((ascale == 'Species')) %>% 
   ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
   scale_fill_manual(values=c('#33a02c','#ff7f00')) +
   geom_violin(trim=FALSE, width = 1, show.legend = FALSE ) +
@@ -158,37 +188,51 @@ filt_t4 %>% filter((ascale == 'Species')) %>%
   ylab("Pairwise distance (# nucleotides)") +
   ylim(0, 80) +
   theme_minimal(base_size = 22) 
+ggsave("species_violin.pdf", plot = specviolin, device = 'pdf', path = "figures/")
 
 #############################################################################################
 ###IS PAIRWISE DISTANCE A FUNCTION OF SCALE?
 ###i.e. do sequences tend to be more divergent the further away they are?
 #############################################################################################
-
-#get pairwise lat and long for pairs of samples
-#remove imcomplete rows
-lalo <- filt_t4 %>% 
-  select(idx, idy, ntdiff, lat.x, long.x, lat.y, long.y) %>% 
-  distinct()
-c<-lalo[complete.cases(lalo), ] 
+#get lat, long, idx, idt, ntdiff from uninflated indexed observations (t1)
+#drop rows missing lat.long values
+lalo <- t1 %>% 
+  select(idx, idy, ntdiff, lat.x, long.x, lat.y, long.y, clade.x, clade.y) %>% 
+  distinct() %>% 
+  drop_na()
 
 #get distances between sampling points
-for(i in 1:nrow(c)) {
-t<-raster::pointDistance(c(c$lat.x[i], c$long.x[i]), c(c$lat.y[i], c$long.y[i]), lonlat = T)
-c[i, 8] <- t
+for(i in 1:nrow(lalo)) {
+t<-raster::pointDistance(c(lalo$lat.x[i], lalo$long.x[i]), c(lalo$lat.y[i], lalo$long.y[i]), lonlat = T)
+lalo[i, 10] <- t
 }
 
 #plot distance over ntdiff
-ggplot(c, aes(x = `...8`, y = ntdiff)) +
+laloplot <- 
+  ggplot(lalo, aes(x = V10, y = ntdiff)) +
   xlab("Distance in metres") +
   ylab("Distance (nucleotides)") +
   geom_point() +
   theme_minimal()
+ggsave("la_lo_lin.pdf", plot = laloplot, device = 'pdf', path = "figures/")
+
+
+#plot distance over ntdiff - for clade 1 only
+clade1laloplot <-
+lalo %>% filter(clade.x == 1 & clade.y == 1) %>% 
+  ggplot(aes(x = V10, y = ntdiff)) +
+  xlab("Distance in metres") +
+  ylab("Distance (nucleotides)") +
+  geom_point() +
+  theme_minimal()
+ggsave("clade1laloplot.pdf", plot = laloplot, device = 'pdf', path = "figures/")
 
 #############################################################################################
-###Fiddle with tree
+###Make figure tree
 #############################################################################################
 x <- read.tree('data/MSA_Banthracis_75samples_clean_shortened.afa.treefile')
 metadata <- read.csv('data/metadata.csv', stringsAsFactors=FALSE, na.strings = c("", "NA"))
+
 #midpoint root tree so is easier to look at
 tree <- root(x, 'NC_007530')
 #get only metadata with tips in tree
@@ -215,6 +259,7 @@ maintree <- p +
         legend.text = element_text(size = 10),
         legend.position = c(0.75, 0.5)) +
   scale_shape_manual(values = c(15, 17, 18, 25, 16), na.translate = F) 
+maintree
 ggsave("maintree.svg", plot = maintree, device = "svg", path = "figures/")
 
 #supp tree
@@ -230,9 +275,6 @@ supptree <- p +
 ggsave("supptree.svg", plot = supptree, device = "svg", path = "figures/")
 
 
-
-#############################################################################################
-###Plot on map
 #############################################################################################
 #read in Tom and Grant's shapefiles for the Serengeti region
 aoi <- st_read('data/V4_Serengeti_Ecosystem/v4_serengeti_ecosystem.shp', )
