@@ -14,6 +14,9 @@ library(RColorBrewer)
 library(ggtree)
 library(treeio)
 library(cowplot)
+library(adegenet)
+#install.packages('adegenet')
+
 
 #setwd
 setwd('~/Projects/anthrax_diversity/anthrax_diversity/')
@@ -55,7 +58,7 @@ t1 <- inddist %>%
 #################
 #Create four columns - one for each scale
 t2 <- t1 %>% 
-  select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y) %>% 
+  dplyr::select(idx, idy, ntdiff, carcass.x, carcass.y, Cluster.x, Cluster.y, species.x, species.y, geog.x, geog.y) %>% 
   mutate(., epi = 'epi') %>%
   mutate(., geog = 'geog') %>% 
   mutate(., carcass = 'carcass') %>% 
@@ -72,32 +75,44 @@ t3 <- t2 %>%
     (ascale == 'carcass' & carcass.x == carcass.y) ~ 'Same Carcass',
     (ascale == 'carcass' & carcass.x != carcass.y) ~ 'Different Carcasses',
     #ditto for geographic group
-    (ascale == 'geog' & geog.x == geog.y) ~ 'Same Cluster', 
-    (ascale == 'geog' & geog.x != geog.y) ~ 'Different Cluster',
+    (ascale == 'geog' & geog.x == geog.y) ~ 'Same Group', 
+    (ascale == 'geog' & geog.x != geog.y) ~ 'Different Group',
     #ditto for species
     (ascale == 'species' & species.x == species.y) ~ 'Same Species', 
     (ascale == 'species' & species.x != species.y) ~ 'Different Species',
     #ditto for epi cluster - note that for samples not in a cluster 'single case'
     #anything between a single case:single case, clsutered case:single case, etc is 'dUnlinked'
     #the d is because ggplot facets alphabetically which messes with my plotting - hacky, manual fix
-    (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Linked Cases',
-    (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' | Cluster.y == 'Single case') ~ 'dUnlinked Cases'))
+    (ascale == 'epi' & Cluster.x == Cluster.y & Cluster.x != 'Single case' & Cluster.y != 'Single Case') ~ 'Same Cluster',
+    (ascale == 'epi' & Cluster.x != Cluster.y | Cluster.x == 'Single case' | Cluster.y == 'Single case') ~ 'Different Cluster'))
 
 ################
 #Now we need to apply some filters
 #filter out same:same observations - this isn't necessary as `combn` above only outputs 
-#filt_t3 <-t3 %>% filter(!(idx==idy))
+filt_t3 <-t3 # %>% filter(!(idx==idy))
+
+t3 %>% filter(withinorbetween == 'Same Carcass') %>% ggplot(aes(x=ntdiff))+
+  geom_histogram(binwidth = 1) + 
+  theme_minimal()+
+  labs(x='No. Nucleotide Differences', y='Count') +
+  geom_vline(xintercept=2, colour = '#de2d26')
+
+?geom_vline
+
+s = t3 %>% filter(withinorbetween == 'Same Carcass')
+
 #remove observations from epi clusters that are from the same carcass
 filt_t4 <- filt_t3 %>% filter(!(ascale == 'epi' & carcass.x == carcass.y))
 #unknown species:unknown species evaluates as spurious 'same species' - remove
 filt_t4 <- filt_t4 %>% filter(!(ascale == 'species' & species.x == 'unknown' | species.y == 'unknown'))
 
 ################
-#generate summary stats
+#generate summary stats as three tables
+#for each scale, across the nca, and distinct lineages from the same carcass
 
 #for each 'scale' - within or between species, geog, epi, carcass
 summarystatsfiltt4 <-filt_t4 %>% 
-  select(withinorbetween, ntdiff) %>% 
+  dplyr::select(withinorbetween, ntdiff) %>% 
   group_by(withinorbetween) %>% 
   summarise(Median = median(ntdiff), Mean = mean(ntdiff), Min = min(ntdiff), Max = max(ntdiff), Lower_Quartile = quantile(ntdiff, 0.25), Upper_Quartile = quantile(ntdiff, 0.75), IQR = IQR(ntdiff))
 
@@ -106,15 +121,19 @@ ncawide <- inddist %>%
   summarise(Median = median(dist), Mean = mean(dist), Min = min(dist), Max = max(dist), Lower_Quartile = quantile(dist, 0.25), Upper_Quartile = quantile(dist, 0.75), IQR = IQR(dist)) %>% 
   mutate(withinorbetween = paste('NCA-wide comparisons'))
 
-#distinct lineages from the same carcass
+#distinct lineages (non-identical isolates) from the same carcass
 distinct_carc <- filt_t4 %>% 
   filter(withinorbetween == 'Same Carcass' & ntdiff > 0) %>% 
   summarise(Median = median(ntdiff), Mean = mean(ntdiff), Min = min(ntdiff), Max = max(ntdiff), Lower_Quartile = quantile(ntdiff, 0.25), Upper_Quartile = quantile(ntdiff, 0.75), IQR = IQR(ntdiff)) %>% 
   mutate(withinorbetween = paste('Distinct Isolates from Same Carcass'))
 
+s = filt_t4 %>% 
+  filter(withinorbetween == 'Same Carcass')
+
+hist(s$ntdiff, breaks = 100)
 #bind all 3 together
 finalsummarystatstable <- rbind(summarystatsfiltt4, ncawide, distinct_carc)
-
+s %>% filter(sample_id == 'LNA_D1'  )
 
 ################
 #write to file - unfiltered df and filtered df, and summary stats
@@ -128,7 +147,7 @@ write_csv(finalsummarystatstable, 'data/summarystatstfromfiltered.csv')
 #############################################################################################
 
 #define ascale as factor level for plotting (capitalising letters, etc)
-filt_t4$ascale <- factor(filt_t4$ascale, levels = c("geog", "epi", "carcass", "species"), labels = c("Geographic Cluster",  "Epidemiological Cluster", "Carcass", "Species"))
+filt_t4$ascale <- factor(filt_t4$ascale, levels = c("geog", "epi", "carcass", "species"), labels = c("Geographic Group",  "Epidemiological Cluster", "Carcass", "Species"))
 
 #check withinorbetween factor elvels
 levels(as.factor(filt_t4$withinorbetween))
@@ -138,22 +157,23 @@ colorset = c('#33a02c','#33a02c','#33a02c', '#ff7f00', '#ff7f00', '#ff7f00')
 
 #########
 #violin plots of distance within and between scales
+violplot <-
 filt_t4 %>% filter((ascale != 'Species')) %>% 
   ggplot(., aes(x=withinorbetween, y=ntdiff, fill = withinorbetween)) + 
   scale_fill_manual(values=colorset) +
   geom_violin(trim=F, width = 1, show.legend = FALSE ) +
   facet_grid(. ~ ascale, scales = "free_x") +
   geom_boxplot(width=0.04, color="#252525", alpha=1.5, show.legend = FALSE ) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
-  xlab("Difference in Scale") +
   ylab("Pairwise distance (# nucleotides)") +
+  xlab("")+
   ylim(0, 80) +
-  theme_minimal(base_size = 22) 
-ggsave("violinfig1.pdf", plot = last_plot(), device = 'pdf', path = "figures/")
+  theme_minimal(base_size = 22) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+violplot
+ggsave("violinfig1.pdf", plot = violplot, device = 'pdf', path = "figures/", scale = 2)
 
 #########
 #histogram of disdtance within carcass
-
+filt_t4
 carchist <- filt_t4 %>% filter(ascale == 'Carcass' & withinorbetween == 'Same Carcass') %>% 
   ggplot(aes(x=ntdiff)) +
   geom_histogram(binwidth =1) +
@@ -161,7 +181,7 @@ carchist <- filt_t4 %>% filter(ascale == 'Carcass' & withinorbetween == 'Same Ca
   xlab("Nucleotide differences") +
   ylab("Count")
 ggsave("histogram_carcass_ntdiff.pdf", plot = carchist, device = 'pdf', path = "figures/")
-
+carchist
 #########
 #histogram of disdtance within NCA whole
 ncahist <- filt_t4 %>% 
@@ -189,7 +209,7 @@ specviolin <- filt_t4 %>% filter((ascale == 'Species')) %>%
   ylim(0, 80) +
   theme_minimal(base_size = 22) 
 ggsave("species_violin.pdf", plot = specviolin, device = 'pdf', path = "figures/")
-
+specviolin
 #############################################################################################
 ###IS PAIRWISE DISTANCE A FUNCTION OF SCALE?
 ###i.e. do sequences tend to be more divergent the further away they are?
@@ -214,8 +234,18 @@ laloplot <-
   ylab("Distance (nucleotides)") +
   geom_point() +
   theme_minimal()
-ggsave("la_lo_lin.pdf", plot = laloplot, device = 'pdf', path = "figures/")
+ggsave("allsampleslaloplot.pdf", plot = laloplot, device = 'pdf', path = "figures/")
+laloplot
 
+
+
+clade1lalo = lalo %>% filter(clade.x == 1 & clade.y == 1)
+hist(clade1lalo$ntdiff)
+write_csv(clade1lalo,'~/Projects/anthrax_diversity/anthrax_diversity/clade1lalo.csv')
+
+
+m1 = glm(ntdiff ~ V10, family = 'gaussian', data=lalo)
+summary(m1)
 
 #plot distance over ntdiff - for clade 1 only
 clade1laloplot <-
@@ -225,8 +255,9 @@ lalo %>% filter(clade.x == 1 & clade.y == 1) %>%
   ylab("Distance (nucleotides)") +
   geom_point() +
   theme_minimal()
-ggsave("clade1laloplot.pdf", plot = laloplot, device = 'pdf', path = "figures/")
 
+ggsave("clade1laloplot.pdf", plot = clade1laloplot, device = 'pdf', path = "figures/")
+clade1laloplot
 #############################################################################################
 ###Make figure tree
 #############################################################################################
@@ -351,5 +382,56 @@ supp <- ggplot(data = world) +
 #plot
 supp
 
+#############
+#IBD test in adegenet
 
 
+anthraxmsa = fasta2DNAbin('/Users/tristanpwdennis/Projects/anthrax_diversity/MSA_anthrax_final.afa')
+anthraxmsa = DNAbin2genind(anthraxmsa)
+
+s = cbind(metadata$sample_id, metadata$lat, metadata$long)
+xy.list <- split(s, seq(nrow(s)))
+dimnames(xy.list) = c('name', 'x', 'y')
+
+
+strata(anthraxmsa) = xy.list
+
+anthraxmsa@other = as.list(t)
+
+
+anthraxmsa@other
+nancycats@other
+
+anthraxmsa@strata$V3
+r = nancycats@other
+t = data.matrix(s, rownames.force = s$V1)
+
+#make up distmatrix
+mat = as.matrix(mat)
+rownames(mat) = mat[,1]
+mat = mat[,-1]
+
+s = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% select(idx, idy, ntdiff) 
+t = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% select(idx, idy, V10) 
+x = s
+colnames(x) = c('idy', 'idx', 'ntdiff')
+s = rbind(x, s)
+y = t
+colnames(y) = c('idy', 'idx', 'V10')
+t = rbind(t, y)
+s = pivot_wider(s, values_from = ntdiff, names_from = idx) 
+t = pivot_wider(t, values_from = V10, names_from = idx) 
+s[is.na(s)] <- 0
+t[is.na(t)] <- 0
+s = as.matrix(s)
+t = as.matrix(t)
+rownames(s) = s[,1]
+rownames(t) = t[,1]
+s = s[,-1]
+t = t[,-1]
+
+ibd = mantel.randtest(as.dist(s), as.dist(t), nrepet = 999)
+plot(ibd)
+ibd
+
+lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1)
