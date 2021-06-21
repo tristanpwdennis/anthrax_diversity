@@ -210,7 +210,7 @@ specviolin
 #get lat, long, idx, idt, ntdiff from uninflated indexed observations (t1)
 #drop rows missing lat.long values
 lalo <- t1 %>% 
-  select(idx, idy, ntdiff, lat.x, long.x, lat.y, long.y, clade.x, clade.y) %>% 
+  dplyr::select(idx, idy, ntdiff, lat.x, long.x, lat.y, long.y, clade.x, clade.y) %>% 
   distinct() %>% 
   drop_na()
 
@@ -326,9 +326,6 @@ eastafricarop <- st_crop(world,
 
 eastafricabbox <- st_bbox(eastafricarop)
 
-
-
-
 #plot eas africa
 eastafrica <- ggplot(data = eastafricarop) +
   geom_sf(fill = "#fcfcf5") +
@@ -337,7 +334,6 @@ eastafrica <- ggplot(data = eastafricarop) +
   theme(panel.grid.major = element_line(color = gray(0.5), linetype = "dashed", size = 0.5), panel.background = element_rect(fill = "aliceblue"), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 
 eastafrica
-
 
 #plot nca with points
 nca <- ggplot(data = world) +
@@ -349,7 +345,6 @@ nca <- ggplot(data = world) +
   geom_sf(data = lakes, colour = '#a6bddb', fill = '#a6bddb') +
   coord_sf(xlim = c(34.5, 36), ylim =c(-2.4, -3.8) , expand = FALSE) +
   xlab("Longitude") + ylab("Latitude") 
-
 
 nca
 
@@ -376,55 +371,45 @@ supp <- ggplot(data = world) +
 supp
 
 #############
-#IBD test in adegenet
-
-
-anthraxmsa = fasta2DNAbin('/Users/tristanpwdennis/Projects/anthrax_diversity/MSA_anthrax_final.afa')
-anthraxmsa = DNAbin2genind(anthraxmsa)
-
-s = cbind(metadata$sample_id, metadata$lat, metadata$long)
-xy.list <- split(s, seq(nrow(s)))
-dimnames(xy.list) = c('name', 'x', 'y')
-
-
-strata(anthraxmsa) = xy.list
-
-anthraxmsa@other = as.list(t)
-
-
-anthraxmsa@other
-nancycats@other
-
-anthraxmsa@strata$V3
-r = nancycats@other
-t = data.matrix(s, rownames.force = s$V1)
-
-#make up distmatrix
-mat = as.matrix(mat)
-rownames(mat) = mat[,1]
-mat = mat[,-1]
-
-s = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% select(idx, idy, ntdiff) 
-t = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% select(idx, idy, V10) 
+#IBD test 
+#restrict to dominant clade #1 in lalo
+#select ntdiff
+s = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% dplyr::select(idx, idy, ntdiff) 
+#select geodist
+t = lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1) %>% dplyr::select(idx, idy, V10) 
+#fake 'bottom half'
 x = s
+#makie colnames for fake half the same
 colnames(x) = c('idy', 'idx', 'ntdiff')
+#bind into final
 s = rbind(x, s)
+#ditto for geodist matrix
 y = t
 colnames(y) = c('idy', 'idx', 'V10')
 t = rbind(t, y)
+
+#pivot into wider format to prepare for matrix coercion
 s = pivot_wider(s, values_from = ntdiff, names_from = idx) 
 t = pivot_wider(t, values_from = V10, names_from = idx) 
+
+#NA to 0
 s[is.na(s)] <- 0
 t[is.na(t)] <- 0
+
+#coerce to matrices
 s = as.matrix(s)
 t = as.matrix(t)
+#make rownames
 rownames(s) = s[,1]
 rownames(t) = t[,1]
+#remove old rowname cols
 s = s[,-1]
 t = t[,-1]
-
+#mantel test
 ibd = mantel.randtest(as.dist(s), as.dist(t), nrepet = 999)
+#plot
 plot(ibd)
+#show output
 ibd
 
-lalo %>% filter(clade.x ==1) %>% filter(clade.y ==1)
+
