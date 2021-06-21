@@ -5,18 +5,11 @@
 
 ###############################
 #import packages
-
-library(tidyverse)
-library(sf)
-library("rnaturalearth")
-library("rnaturalearthdata")
-library(RColorBrewer)
-library(ggtree)
-library(treeio)
-library(cowplot)
-library(adegenet)
-#install.packages('adegenet')
-
+pkg = c("tidyverse", "sf", "rnaturalearth", "rnaturalearthdata", "RColorBrewer", "ggtree", "treeio", "cowplot", "adegenet")
+#install.packages(pkg) #install packages if you need them and load
+new.packages <- pkg[!(pkg %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(pkg, require, character.only = TRUE)#
 
 #setwd
 setwd('~/Projects/anthrax_diversity/anthrax_diversity/')
